@@ -1,0 +1,460 @@
+#!/bin/bash
+# Объединённый скрипт установки Xray (self-sni) + telemt + шаблон сайта
+# Перед запуском задайте переменную с именем вашего домена:
+# export domain=ваш-домен.ru
+
+set -e
+
+# Проверка наличия домена
+if [ -z "$domain" ]; then
+    echo "Ошибка: не задана переменная domain"
+    echo "Используйте: export domain=ваш-домен.ru && bash $0"
+    exit 1
+fi
+
+echo "=== Начинаем установку для домена $domain ==="
+
+# 1. Обновление системы и установка базовых пакетов
+apt update
+apt install -y curl wget nginx-full qrencode jq openssl unzip
+
+
+# 2. Скачивание и распаковка шаблона сайта
+echo "=== Подготавливаем веб-корень и устанавливаем шаблон сайта Sleeky Pro ==="
+mkdir -p /var/www/html
+cd /tmp
+wget -O sleeky_pro.zip https://templatemo.com/tm-zip-files-2020/templatemo_598_sleeky_pro.zip
+unzip -o sleeky_pro.zip
+# В архиве есть папка templatemo_598_sleeky_pro, копируем её содержимое в /var/www/html
+cp -rf templatemo_598_sleeky_pro/* /var/www/html/
+# Удаляем временные файлы
+rm -rf sleeky_pro.zip templatemo_598_sleeky_pro
+cd -
+
+
+# 3. Получение сертификатов для domain, ad.domain и ads.domain
+wget -O - https://get.acme.sh | sh
+~/.acme.sh/acme.sh --upgrade --auto-upgrade
+
+
+# Выпуск сертификатов для всех трёх доменов
+for d in "$domain" "ad.$domain" "ads.$domain"; do
+    ~/.acme.sh/acme.sh --issue --server letsencrypt -d "$d" -w /var/www/html --keylength ec-256 --force
+done
+
+# Копируем сертификаты в папку Xray
+mkdir -p /usr/local/etc/xray/xray_cert/
+
+# Для основного домена
+~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
+    --fullchain-file /usr/local/etc/xray/xray_cert/xray.crt \
+    --key-file /usr/local/etc/xray/xray_cert/xray.key
+
+# Для ad.domain (сохраняем в ту же папку, но с другим именем)
+~/.acme.sh/acme.sh --install-cert -d "ad.$domain" --ecc \
+    --fullchain-file /usr/local/etc/xray/xray_cert/xray_ad.crt \
+    --key-file /usr/local/etc/xray/xray_cert/xray_ad.key
+
+# Для ads.domain
+~/.acme.sh/acme.sh --install-cert -d "ads.$domain" --ecc \
+    --fullchain-file /usr/local/etc/xray/xray_cert/xray_ads.crt \
+    --key-file /usr/local/etc/xray/xray_cert/xray_ads.key
+
+chmod +r /usr/local/etc/xray/xray_cert/*.key
+
+# 4. Скрипт обновления сертификатов (включая дополнительные домены)
+touch /usr/local/etc/xray/xray_cert/xray-cert-renew
+cat << EOF > /usr/local/etc/xray/xray_cert/xray-cert-renew
+#!/bin/bash
+~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc --fullchain-file /usr/local/etc/xray/xray_cert/xray.crt --key-file /usr/local/etc/xray/xray_cert/xray.key
+~/.acme.sh/acme.sh --install-cert -d "ad.$domain" --ecc --fullchain-file /usr/local/etc/xray/xray_cert/xray_ad.crt --key-file /usr/local/etc/xray/xray_cert/xray_ad.key
+~/.acme.sh/acme.sh --install-cert -d "ads.$domain" --ecc --fullchain-file /usr/local/etc/xray/xray_cert/xray_ads.crt --key-file /usr/local/etc/xray/xray_cert/xray_ads.key
+chmod +r /usr/local/etc/xray/xray_cert/*.key
+systemctl restart xray
+systemctl restart nginx
+EOF
+
+chmod +x /usr/local/etc/xray/xray_cert/xray-cert-renew
+
+# Добавляем в cron (ежемесячно)
+crontab -l 2>/dev/null | grep -q "xray-cert-renew" || (crontab -l 2>/dev/null; echo "0 1 1 * * bash /usr/local/etc/xray/xray_cert/xray-cert-renew") | crontab -
+
+# 5. Включение BBR
+bbr=$(sysctl -a 2>/dev/null | grep net.ipv4.tcp_congestion_control | grep bbr || true)
+if [ -n "$bbr" ]; then
+    echo "bbr уже включен"
+else
+    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    sysctl -p
+    echo "bbr включен"
+fi
+
+# 6. Установка Xray
+bash -c "$(curl -4 -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+mkdir -p /var/log/xray/
+
+# Генерация ключей
+[ -f /usr/local/etc/xray/.keys ] && rm /usr/local/etc/xray/.keys
+touch /usr/local/etc/xray/.keys
+echo "shortsid: $(openssl rand -hex 8)" >> /usr/local/etc/xray/.keys
+sleep 2
+uuid=$(/usr/local/bin/xray uuid 2>/dev/null || xray uuid)
+echo "uuid: $uuid" >> /usr/local/etc/xray/.keys
+echo "domain: $domain" >> /usr/local/etc/xray/.keys
+
+# 7. Конфигурация Xray
+cat << EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+        "loglevel": "info",
+        "access": "/var/log/xray/access.log",
+        "error": "/var/log/xray/error.log"
+    },
+
+  "routing": {
+    "rules": [],
+    "domainStrategy": "AsIs"
+  },
+  "inbounds": [
+        {
+            "port": 4443,
+            "protocol": "vless",
+            "settings": {
+                "clients": [
+                    {
+                        "email": "main",
+                        "id": "$uuid",
+                        "flow": "xtls-rprx-vision",
+                        "level": 0
+                    }
+                ],
+                "decryption": "none",
+                "fallbacks": [
+                  {
+                    "dest": 8080,
+                    "xver": 1
+                  }
+                ]
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "tls",
+                "tcpSettings": {
+                      "acceptProxyProtocol": true   // <-- Включение приёма PROXY protocol
+                   },
+                "tlsSettings": {
+                  "fingerprint": "chrome",
+                  "alpn": ["http/1.1"],
+                  "certificates": [
+                    {
+                      "certificateFile": "/usr/local/etc/xray/xray_cert/xray_ad.crt",
+                      "keyFile": "/usr/local/etc/xray/xray_cert/xray_ad.key"
+                    }
+                  ]
+                }
+            }
+        }
+    ],
+
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+            "targetStrategy": "ForceIPv4" // Use "ForceIPv4" if "UseIPv4" isn't strict enough
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
+}
+
+EOF
+
+
+link="vless://$uuid@$domain:443?security=tls&alpn=http%2F1.1&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=ad.$domain&headerType=none&encryption=none#VPN"
+
+systemctl restart xray
+
+
+
+# 9. Настройка Nginx
+
+
+cat << EOF > /etc/nginx/nginx.conf
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+	worker_connections 768;
+	# multi_accept on;
+}
+
+http {
+
+	##
+	# Basic Settings
+	##
+
+	sendfile on;
+	tcp_nopush on;
+	types_hash_max_size 2048;
+	# server_tokens off;
+
+	# server_names_hash_bucket_size 64;
+	# server_name_in_redirect off;
+
+	include /etc/nginx/mime.types;
+	default_type application/octet-stream;
+
+	##
+	# SSL Settings
+	##
+
+	ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3; # Dropping SSLv3, ref: POODLE
+	ssl_prefer_server_ciphers on;
+
+	##
+	# Logging Settings
+	##
+
+	access_log /var/log/nginx/access.log;
+
+	##
+	# Gzip Settings
+	##
+
+	gzip on;
+
+	# gzip_vary on;
+	# gzip_proxied any;
+	# gzip_comp_level 6;
+	# gzip_buffers 16 8k;
+	# gzip_http_version 1.1;
+	# gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+	##
+	# Virtual Host Configs
+	##
+
+
+	include /etc/nginx/conf.d/*.conf;
+	include /etc/nginx/sites-enabled/*;
+}
+
+
+stream {
+    log_format stream '$remote_addr [$time_local] host=$ssl_preread_server_name '
+                      'prot=$protocol status=$status out=$bytes_sent in=$bytes_received';
+
+    # включите логи если вам интересно
+    #access_log /var/log/nginx/stream_access.log stream;
+    #error_log /var/log/nginx/stream_error.log debug;
+
+    map $ssl_preread_server_name $backend_name {
+
+    ads.$domain     tg_proxy;     # запросы на ads.riastars.ddns.net будут отправляться на Telemt
+    ad.$domain      xray_backend; # запросы будут отправляться на XRAY
+    www.$domain     nginx_https;
+    default         nginx_https; 
+    
+    }
+
+    upstream tg_proxy {
+        server 127.0.0.1:7788;
+    }
+
+    upstream nginx_https {
+        server 127.0.0.1:8443;
+    }
+
+    upstream xray_backend {
+        server 127.0.0.1:4443;
+    }
+
+
+    server {
+        listen 443 reuseport;
+        listen [::]:443 reuseport;
+        proxy_pass $backend_name;
+        ssl_preread on; # включаем pre-read ssl протокола чтобы получить hostname из запроса
+        proxy_protocol on; # включаем proxy_protocol чтобы передать реальный IP адрес клиента по цепочке
+        proxy_connect_timeout 5s;
+        proxy_timeout 1h; # Телеграм любит долгие сессии
+    }
+}
+EOF
+
+
+cat << EOF > /etc/nginx/sites-available/default
+server {
+        listen 80;
+        server_name $domain ad.$domain ads.$domain;
+        return 301 https://$http_host$request_uri;
+       }
+
+
+server {
+    listen 127.0.0.1:8443 ssl proxy_protocol;  # < Порт 8443, как в upstream
+    server_name $domain;
+    
+    # SSL сертификаты
+    ssl_certificate /usr/local/etc/xray/xray_cert/xray.crt;
+    ssl_certificate_key /usr/local/etc/xray/xray_cert/xray.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    
+    # Получаем реальный IP из PROXY Protocol
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    
+    root /var/www/html;
+    index index.html;
+    add_header Strict-Transport-Security "max-age=63072000" always;
+}
+
+# Этот сервер принимает fallback от Xray
+server {
+    listen 127.0.0.1:8080 proxy_protocol;
+    
+    # Получаем реальный IP из PROXY Protocol
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    
+    server_name ad.$domain;
+    root /var/www/html;
+    index index.html;
+}
+
+# Этот сервер принимает fallback от TeleMT
+server {
+    listen 127.0.0.1:8081 ssl proxy_protocol;
+
+    # SSL сертификаты
+    ssl_certificate /usr/local/etc/xray/xray_cert/xray_ads.crt;
+    ssl_certificate_key /usr/local/etc/xray/xray_cert/xray_ads.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    
+    # Получаем реальный IP из PROXY Protocol
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    
+    server_name ads.$domain;
+    root /var/www/html;
+    index index.html;
+}
+EOF
+
+
+systemctl restart nginx
+
+# 10. Установка telemt по гайду
+echo "=== Установка telemt ==="
+# Скачивание
+wget -qO- "https://github.com/telemt/telemt/releases/latest/download/telemt-$(uname -m)-linux-$(ldd --version 2>&1 | grep -iq musl && echo musl || echo gnu).tar.gz" | tar -xz
+mv telemt /bin/
+chmod +x /bin/telemt
+
+# Генерация секрета (32 hex)
+secret=$(openssl rand -hex 16)
+
+# Конфигурация telemt
+mkdir -p /etc/telemt
+mkdir -p /opt/telemt
+cat << EOF > /etc/telemt/telemt.toml
+# === General Settings ===
+
+#[dc_overrides]
+#"203" = "91.105.192.100:443"
+#default_dc = "203"
+
+[general]
+# ad_tag = "00000000000000000000000000000000"
+use_middle_proxy = false
+fast_mode = true
+log_level = "normal"
+
+[general.modes]
+classic = false
+secure = false
+tls = true
+
+# слушаем 7788
+[server]
+port = 7788
+listen_addr_ipv4 = "127.0.0.1"
+proxy_protocol = true
+
+[server.api]
+enabled = true
+listen = "127.0.0.1:9091"
+read_only = true
+# whitelist = ["127.0.0.1/32"]
+
+
+# коннекты без ключа - фоллбечим на :8081
+[censorship]
+tls_domain = "ads.$domain"
+mask = true
+mask_port = 8081
+mask_host = "127.0.0.1"
+mask_proxy_protocol = 1
+#fake_cert_len = 2048
+
+[access.users]
+# format: "username" = "32_hex_chars_secret"
+#hello = "00000000000000000000000000000000"
+hello = "$secret"
+
+EOF
+
+# Создание пользователя telemt
+useradd -d /opt/telemt -m -r -U telemt
+chown -R telemt:telemt /etc/telemt
+
+# Создание systemd сервиса
+cat << EOF > /etc/systemd/system/telemt.service
+[Unit]
+Description=Telemt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telemt
+Group=telemt
+WorkingDirectory=/opt/telemt
+ExecStart=/bin/telemt /etc/telemt/telemt.toml
+Restart=on-failure
+LimitNOFILE=65536
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable telemt
+systemctl start telemt
+
+# 11. Завершение и вывод информации
+systemctl restart xray
+
+echo "=== Установка завершена ==="
+echo "Сертификаты выпущены для: $domain, ad.$domain, ads.$domain"
+echo "Шаблон сайта установлен в /var/www/html"
+echo ""
+echo "Основные ссылки для подключения Xray:"
+echo "$link"
+echo ""
+echo "Telemt установлен. Секрет для пользователя hello: $secret"
+echo "Ссылка для подключения telemt:"
+curl -s http://127.0.0.1:9091/v1/users | jq
+echo ""
