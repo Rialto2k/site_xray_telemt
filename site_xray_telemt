@@ -259,22 +259,20 @@ http {
 
 stream {
 
+    log_format stream '\$remote_addr [\$time_local] host=\$ssl_preread_server_name '
+                      'prot=\$protocol status=\$status out=\$bytes_sent in=\$bytes_received';
 
-    log_format stream '$remote_addr [$time_local] host=$ssl_preread_server_name '
-                      'prot=$protocol status=$status out=$bytes_sent in=$bytes_received';
-
-    # включите логи если вам интересно
     access_log /var/log/nginx/stream_access.log stream;
     error_log /var/log/nginx/stream_error.log info;
 
-    map $ssl_preread_server_name $backend_name {
+    map \$ssl_preread_server_name \$backend_name {
 
       ads.$domain   tg_proxy;       # запросы на ads.$domain будут отправляться на mtproxy
       ad.$domain 		xray_backend;   # запросы на ad.$domain будут отправляться на XRAY
       www.$domain		nginx_https;
       default       nginx_https; 
     
-}
+    }
 
     upstream tg_proxy {
         server 127.0.0.1:7788;   
@@ -294,7 +292,7 @@ stream {
     server {
         listen 443 reuseport;
         listen [::]:443 reuseport;
-        proxy_pass $backend_name;
+        proxy_pass \$backend_name;
         ssl_preread on; # включаем pre-read ssl протокола чтобы получить hostname из запроса
         proxy_protocol on; # включаем proxy_protocol чтобы передать реальный IP адрес клиента по цепочке
         
