@@ -466,7 +466,7 @@ systemctl restart xray
 echo ""
 echo ""
 echo -e "\033[1;32m=== Установка завершена ===\033[0m"
-echo "Сертификаты выпущены для: 
+echo "Сертификаты выпущены для:"
 echo -e "\033[1;32m$domain, ad.$domain, ads.$domain\033[0m"
 echo "Шаблон сайта установлен в /var/www/html"
 echo ""
