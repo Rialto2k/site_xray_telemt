@@ -415,10 +415,12 @@ read_only = true
 # коннекты без ключа - фоллбечим на :8081
 [censorship]
 tls_domain = "ads.$domain"
+unknown_sni_action = mask
 mask = true
 mask_port = 8081
 mask_host = "127.0.0.1"
 mask_proxy_protocol = 1
+tls_emulation = true
 #fake_cert_len = 2048
 
 [access.users]
@@ -461,15 +463,21 @@ systemctl start telemt
 
 # 11. Завершение и вывод информации
 systemctl restart xray
-
-echo "=== Установка завершена ==="
-echo "Сертификаты выпущены для: $domain, ad.$domain, ads.$domain"
+echo ""
+echo ""
+echo -e "\033[1;32m=== Установка завершена ===\033[0m"
+echo "Сертификаты выпущены для: 
+echo -e "\033[1;32m$domain, ad.$domain, ads.$domain\033[0m"
 echo "Шаблон сайта установлен в /var/www/html"
 echo ""
-echo "Основные ссылки для подключения Xray:"
-echo "$link"
+echo "Ссылка для подключения Xray:"
+echo -e "\033[1;32m$link\033[0m"
 echo ""
-echo "Telemt установлен. Секрет для пользователя hello: $secret"
-echo "Ссылка для подключения telemt:"
-curl -s http://127.0.0.1:9091/v1/users | jq
+echo "Telemt установлен."
+echo "Ссылка для подключения Telemt:"
+telemt_link=$(curl -s http://127.0.0.1:9091/v1/users | \
+  jq -r '.data[].links.tls[0]' | \
+  sed "s/127.0.0.1/ads.$domain/" | \
+  sed 's/7788/443/')
+echo -e "\033[1;32m$telemt_link\033[0m"
 echo ""
