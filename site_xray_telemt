@@ -19,6 +19,10 @@ apt update
 apt install -y curl wget nginx-full qrencode jq openssl unzip
 
 
+
+echo "130.255.77.28 ntc.party" >> /etc/hosts
+
+
 # 2. Скачивание и распаковка шаблона сайта
 echo "=== Подготавливаем веб-корень и устанавливаем шаблон сайта Sleeky Pro ==="
 mkdir -p /var/www/html
