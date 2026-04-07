@@ -415,7 +415,6 @@ read_only = true
 # коннекты без ключа - фоллбечим на :8081
 [censorship]
 tls_domain = "ads.$domain"
-unknown_sni_action = mask
 mask = true
 mask_port = 8081
 mask_host = "127.0.0.1"
