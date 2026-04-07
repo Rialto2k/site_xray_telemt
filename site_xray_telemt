@@ -476,7 +476,7 @@ echo "Telemt установлен."
 echo "Ссылка для подключения Telemt:"
 telemt_link=$(curl -s http://127.0.0.1:9091/v1/users | \
   jq -r '.data[].links.tls[0]' | \
-  sed "s/127.0.0.1/ads.$domain/" | \
+  sed "s/127.0.0.1/$domain/" | \
   sed 's/7788/443/')
 echo -e "\033[1;32m$telemt_link\033[0m"
 echo ""
