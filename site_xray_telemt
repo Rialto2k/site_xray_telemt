@@ -107,65 +107,122 @@ uuid=$(/usr/local/bin/xray uuid 2>/dev/null || xray uuid)
 echo "uuid: $uuid" >> /usr/local/etc/xray/.keys
 echo "domain: $domain" >> /usr/local/etc/xray/.keys
 
+
+
 # 7. Конфигурация Xray
+
+# Запрос блокировки доменов россии, пока не получим y или n
+while true; do
+    echo ""
+    echo "Здесь выбирается конфигурация для XRAY (впн)"
+    echo "При выборе y (yes) блокируются все русские домены"
+    echo "Клиенты при включёном впн, без настроенной маршрутизации"
+    echo "не смогут заходить на руские сайты и домены .ru .by .su .рф (например ya.ru auto.by vmp.su)"
+    echo ""
+    read -p "Выбрать конфигурацию XRAY с заблокированными доменами Росиии? (y/n): " answer
+    answer=${answer,,}  # приводим к нижнему регистру
+
+    if [[ "$answer" == "y" || "$answer" == "yes" ]]; then
+        sudo mkdir -p "/usr/local/share/xray2"
+        wget -q --show-progress -O "/usr/local/share/xray/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+        wget -q --show-progress -O "/usr/local/share/xray/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
 cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
-        "loglevel": "info",
-        "access": "/var/log/xray/access.log",
-        "error": "/var/log/xray/error.log"
-    },
+    "loglevel": "warning",
+    "access": "none",
+    "error": "/var/log/xray/error.log"
+  },
 
   "routing": {
-    "rules": [],
-    "domainStrategy": "AsIs"
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "domain": ["ad.$domain"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-ru",
+          "regexp:.*\\.ru$",
+          "regexp:.*\\.su$",
+          "regexp:.*\\.by$",
+          "regexp:.*\\.xn--p1ai$",
+          "domain:yandex.net",
+          "domain:ifconfig.me",
+          "domain:ipify.org",
+          "domain:checkip.amazonaws.com"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      }
+    ]
   },
+
   "inbounds": [
-        {
-            "port": 4443,
-            "protocol": "vless",
-            "settings": {
-                "clients": [
-                    {
-                        "email": "main",
-                        "id": "$uuid",
-                        "flow": "xtls-rprx-vision",
-                        "level": 0
-                    }
-                ],
-                "decryption": "none",
-                "fallbacks": [
-                  {
-                    "dest": 8080,
-                    "xver": 1
-                  }
-                ]
-            },
-            "streamSettings": {
-                "network": "tcp",
-                "security": "tls",
-                "tcpSettings": {
-                      "acceptProxyProtocol": true   // <-- Включение приёма PROXY protocol
-                   },
-                "tlsSettings": {
-                  "fingerprint": "chrome",
-                  "alpn": ["http/1.1"],
-                  "certificates": [
-                    {
-                      "certificateFile": "/usr/local/etc/xray/xray_cert/xray_ad.crt",
-                      "keyFile": "/usr/local/etc/xray/xray_cert/xray_ad.key"
-                    }
-                  ]
-                }
+    {
+      "port": 4443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "main",
+            "id": "$uuid",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": 8080,
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tcpSettings": {
+          "acceptProxyProtocol": true
+        },
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "/usr/local/etc/xray/xray_cert/xray_ad.crt",
+              "keyFile": "/usr/local/etc/xray/xray_cert/xray_ad.key"
             }
+          ]
         }
-    ],
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": false
+      }
+    }
+  ],
 
   "outbounds": [
     {
       "protocol": "freedom",
       "settings": {
-            "targetStrategy": "ForceIPv4" // Use "ForceIPv4" if "UseIPv4" isn't strict enough
+        "targetStrategy": "ForceIPv4"
       },
       "tag": "direct"
     },
@@ -177,6 +234,110 @@ cat << EOF > /usr/local/etc/xray/config.json
 }
 
 EOF
+        echo "Добавлены файлы geoip.dat geosite.dat, создан конфиг XRAY с блокировками"
+        echo "" 
+	break  # выходим из цикла, продолжаем скрипт
+    elif [[ "$answer" == "n" || "$answer" == "no" ]]; then
+
+        cat << EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "none",
+    "error": "/var/log/xray/error.log"
+  },
+
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "domain": ["ad.$domain"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      }
+    ],
+    "domainStrategy": "AsIs"
+  },
+
+  "inbounds": [
+    {
+      "port": 4443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "main",
+            "id": "$uuid",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": 8080,
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tcpSettings": {
+          "acceptProxyProtocol": true
+        },
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "/usr/local/etc/xray/xray_cert/xray_ad.crt",
+              "keyFile": "/usr/local/etc/xray/xray_cert/xray_ad.key"
+            }
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    }
+  ],
+
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "targetStrategy": "ForceIPv4"
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
+}
+
+EOF
+        echo ""
+        echo "Создан конфиг XRAY без блокировок"
+        break  # выходим из цикла
+    else
+        echo ""
+	echo -e "\033[1;32mНеверный ввод на клавиатуре. Пожалуйста, введите y или n.\033[0m"
+        # Цикл продолжается, вопрос задаётся снова
+    fi
+done
+
+
+
+
+
 
 
 link="vless://$uuid@$domain:443?security=tls&alpn=http%2F1.1&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=ad.$domain&headerType=none&encryption=none#VPN"
