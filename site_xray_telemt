@@ -234,12 +234,7 @@ cat << EOF > /usr/local/etc/xray/config.json
 }
 
 EOF
-        echo "Добавлены файлы geoip.dat geosite.dat, создан конфиг XRAY с блокировками"
-        echo "" 
-	break  # выходим из цикла, продолжаем скрипт
-    elif [[ "$answer" == "n" || "$answer" == "no" ]]; then
-
-        cat << EOF > /usr/local/etc/xray/config.json
+cat << EOF > /usr/local/etc/xray/config_with_russia.json
 {
   "log": {
     "loglevel": "warning",
@@ -304,6 +299,205 @@ EOF
       "sniffing": {
         "enabled": true,
         "destOverride": ["http", "tls", "quic"]
+      }
+    }
+  ],
+
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "targetStrategy": "ForceIPv4"
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
+}
+
+EOF
+
+        echo "Добавлены файлы geoip.dat geosite.dat, создан конфиг XRAY с блокировками"
+        echo "" 
+	break  # выходим из цикла, продолжаем скрипт
+    elif [[ "$answer" == "n" || "$answer" == "no" ]]; then
+
+cat << EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "none",
+    "error": "/var/log/xray/error.log"
+  },
+
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "domain": ["ad.$domain"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      }
+    ],
+    "domainStrategy": "AsIs"
+  },
+
+  "inbounds": [
+    {
+      "port": 4443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "main",
+            "id": "$uuid",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": 8080,
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tcpSettings": {
+          "acceptProxyProtocol": true
+        },
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "/usr/local/etc/xray/xray_cert/xray_ad.crt",
+              "keyFile": "/usr/local/etc/xray/xray_cert/xray_ad.key"
+            }
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    }
+  ],
+
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "targetStrategy": "ForceIPv4"
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
+}
+
+EOF
+cat << EOF > /usr/local/etc/xray/config_without_russia.json
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "none",
+    "error": "/var/log/xray/error.log"
+  },
+
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "domain": ["ad.$domain"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-ru",
+          "regexp:.*\\.ru$",
+          "regexp:.*\\.su$",
+          "regexp:.*\\.by$",
+          "regexp:.*\\.xn--p1ai$",
+          "domain:yandex.net",
+          "domain:ifconfig.me",
+          "domain:ipify.org",
+          "domain:checkip.amazonaws.com"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      }
+    ]
+  },
+
+  "inbounds": [
+    {
+      "port": 4443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "main",
+            "id": "$uuid",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": 8080,
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tcpSettings": {
+          "acceptProxyProtocol": true
+        },
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "/usr/local/etc/xray/xray_cert/xray_ad.crt",
+              "keyFile": "/usr/local/etc/xray/xray_cert/xray_ad.key"
+            }
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": false
       }
     }
   ],
