@@ -119,9 +119,9 @@ while true; do
     echo "Клиенты при включёном впн, без настроенной маршрутизации"
     echo "не смогут заходить на руские сайты и домены .ru .by .su .рф (например ya.ru auto.by vmp.su)"
     echo ""
-    read -p "Выбрать конфигурацию XRAY с заблокированными доменами Росиии? (y/n): " answer
+    read -p "Выбрать конфигурацию XRAY с заблокированными доменами России? (y/n): " answer < /dev/tty
     answer=${answer,,}  # приводим к нижнему регистру
-
+    answer=${answer:-y}   # пустой ввод → "y"
     if [[ "$answer" == "y" || "$answer" == "yes" ]]; then
         mkdir -p "/usr/local/share/xray"
         wget -q --show-progress -O "/usr/local/share/xray/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
@@ -523,7 +523,7 @@ EOF
         break  # выходим из цикла
     else
         echo ""
-	echo -e "\033[1;32mНеверный ввод на клавиатуре. Пожалуйста, введите y или n.\033[0m"
+        echo -e "\033[1;32mНеверный ввод на клавиатуре. Пожалуйста, введите y или n.\033[0m"
         # Цикл продолжается, вопрос задаётся снова
     fi
 done
