@@ -115,9 +115,9 @@ echo "domain: $domain" >> /usr/local/etc/xray/.keys
 while true; do
     echo ""
     echo "Здесь выбирается конфигурация для XRAY (впн)"
-    echo "При выборе y (yes) блокируются все русские домены"
+    echo "При выборе y (yes) блокируются все русские домены, а так же домены для определения IP"
     echo "Клиенты при включёном впн, без настроенной маршрутизации"
-    echo "не смогут заходить на руские сайты и домены .ru .by .su .рф (например ya.ru auto.by vmp.su)"
+    echo "не смогут заходить на руские сайты и домены .ru .su .рф (например ya.ru vmp.su объясняем.рф)"
     echo ""
     read -p "Выбрать конфигурацию XRAY с заблокированными доменами России? (y/n): " answer < /dev/tty
     answer=${answer,,}  # приводим к нижнему регистру
@@ -153,14 +153,14 @@ cat << EOF > /usr/local/etc/xray/config.json
         "type": "field",
         "domain": [
           "geosite:category-ru",
+          "geosite:category-gov-ru",
+          "geosite:category-ip-geo-detect",
+          "geosite:yandex",
+          "geosite:vk",
+          "geosite:mailru",
           "regexp:.*\\.ru$",
           "regexp:.*\\.su$",
-          "regexp:.*\\.by$",
-          "regexp:.*\\.xn--p1ai$",
-          "domain:yandex.net",
-          "domain:ifconfig.me",
-          "domain:ipify.org",
-          "domain:checkip.amazonaws.com"
+          "regexp:.*\\.xn--p1ai$"
         ],
         "outboundTag": "block"
       },
@@ -196,7 +196,7 @@ cat << EOF > /usr/local/etc/xray/config.json
       "streamSettings": {
         "network": "tcp",
         "security": "tls",
-        "tcpSettings": {
+        "sockopt": {
           "acceptProxyProtocol": true
         },
         "tlsSettings": {
@@ -221,9 +221,7 @@ cat << EOF > /usr/local/etc/xray/config.json
   "outbounds": [
     {
       "protocol": "freedom",
-      "settings": {
-        "targetStrategy": "ForceIPv4"
-      },
+      "targetStrategy": "ForceIPv4",
       "tag": "direct"
     },
     {
@@ -282,7 +280,7 @@ cat << EOF > /usr/local/etc/xray/config_with_russia.json
       "streamSettings": {
         "network": "tcp",
         "security": "tls",
-        "tcpSettings": {
+        "sockopt": {
           "acceptProxyProtocol": true
         },
         "tlsSettings": {
@@ -306,9 +304,7 @@ cat << EOF > /usr/local/etc/xray/config_with_russia.json
   "outbounds": [
     {
       "protocol": "freedom",
-      "settings": {
-        "targetStrategy": "ForceIPv4"
-      },
+      "targetStrategy": "ForceIPv4",
       "tag": "direct"
     },
     {
@@ -397,9 +393,7 @@ cat << EOF > /usr/local/etc/xray/config.json
   "outbounds": [
     {
       "protocol": "freedom",
-      "settings": {
-        "targetStrategy": "ForceIPv4"
-      },
+      "targetStrategy": "ForceIPv4",
       "tag": "direct"
     },
     {
@@ -505,9 +499,7 @@ cat << EOF > /usr/local/etc/xray/config_without_russia.json
   "outbounds": [
     {
       "protocol": "freedom",
-      "settings": {
-        "targetStrategy": "ForceIPv4"
-      },
+      "targetStrategy": "ForceIPv4",
       "tag": "direct"
     },
     {
