@@ -102,21 +102,8 @@ else
     echo "bbr включен"
 fi
 
-# 6. Установка Xray
-bash -c "$(curl -4 -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
-mkdir -p /var/log/xray/
 
-# Генерация ключей
-[ -f /usr/local/etc/xray/.keys ] && rm /usr/local/etc/xray/.keys
-touch /usr/local/etc/xray/.keys
-echo "shortsid: $(openssl rand -hex 8)" >> /usr/local/etc/xray/.keys
-sleep 2
-uuid=$(/usr/local/bin/xray uuid 2>/dev/null || xray uuid)
-echo "uuid: $uuid" >> /usr/local/etc/xray/.keys
-echo "domain: $domain" >> /usr/local/etc/xray/.keys
-
-
-#.7 Установка microWARP
+#.6 Установка microWARP
 
 mkdir -p /opt/microwarp
 cat << EOF > /opt/microwarp/docker-compose.yml
@@ -145,7 +132,24 @@ docker-compose up -d
 cd /root
 
 
-# 7. Конфигурация Xray
+
+# 7. Установка Xray
+bash -c "$(curl -4 -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+mkdir -p /var/log/xray/
+
+# Генерация ключей
+[ -f /usr/local/etc/xray/.keys ] && rm /usr/local/etc/xray/.keys
+touch /usr/local/etc/xray/.keys
+echo "shortsid: $(openssl rand -hex 8)" >> /usr/local/etc/xray/.keys
+sleep 2
+uuid=$(/usr/local/bin/xray uuid 2>/dev/null || xray uuid)
+echo "uuid: $uuid" >> /usr/local/etc/xray/.keys
+echo "domain: $domain" >> /usr/local/etc/xray/.keys
+
+
+
+
+# 8. Конфигурация Xray
 
 # Запрос блокировки доменов россии, пока не получим y или n
 while true; do
