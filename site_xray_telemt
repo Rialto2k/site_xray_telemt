@@ -141,7 +141,7 @@ volumes:
 EOF
 
 cd /opt/microwarp
-docker compose up -d
+docker-compose up -d
 cd /root
 
 
