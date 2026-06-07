@@ -16,7 +16,7 @@ echo "=== Начинаем установку для домена $domain ==="
 
 # 1. Обновление системы и установка базовых пакетов
 apt update
-apt install -y curl wget nginx-full qrencode jq openssl unzip docker-ce docker-ce-cli containerd.io docker-compose-plugin
+apt install -y curl wget nginx-full qrencode jq openssl unzip docker-compose
 
 
 
