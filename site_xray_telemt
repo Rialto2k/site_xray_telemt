@@ -16,7 +16,7 @@ echo "=== Начинаем установку для домена $domain ==="
 
 # 1. Обновление системы и установка базовых пакетов
 apt update
-apt install -y curl wget nginx-full qrencode jq openssl unzip
+apt install -y curl wget nginx-full qrencode jq openssl unzip docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
 
 
@@ -90,6 +90,14 @@ if [ -n "$bbr" ]; then
 else
     echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
+    echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
+    echo "net.ipv6.conf.lo.disable_ipv6 = 1" >> /etc/sysctl.conf
+    echo "" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_max_tw_buckets=16386" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_fin_timeout = 20" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
+
     sysctl -p
     echo "bbr включен"
 fi
@@ -107,6 +115,34 @@ uuid=$(/usr/local/bin/xray uuid 2>/dev/null || xray uuid)
 echo "uuid: $uuid" >> /usr/local/etc/xray/.keys
 echo "domain: $domain" >> /usr/local/etc/xray/.keys
 
+
+#.7 Установка microWARP
+
+mkdir -p /opt/microwarp
+cat << EOF > /opt/microwarp/docker-compose.yml
+version: '3.8'
+services:
+  microwarp:
+    image: ghcr.io/ccbkkb/microwarp:latest
+    container_name: microwarp
+    restart: always
+    ports:
+      - "127.0.0.1:1080:1080"
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - warp-data:/etc/wireguard
+volumes:
+  warp-data:
+
+EOF
+
+cd /opt/microwarp
+docker compose up -d
+cd /root
 
 
 # 7. Конфигурация Xray
@@ -144,17 +180,17 @@ cat << EOF > /usr/local/etc/xray/config.json
       },
       {
         "type": "field",
-        "ip": [
-          "geoip:ru"
+        "domain": [
+          "google.com",
+          "kgd.ru"
         ],
-        "outboundTag": "block"
+        "outboundTag": "direct"
       },
       {
         "type": "field",
         "domain": [
           "geosite:category-ru",
           "geosite:category-gov-ru",
-          "geosite:category-ip-geo-detect",
           "geosite:yandex",
           "geosite:vk",
           "geosite:mailru",
@@ -166,8 +202,24 @@ cat << EOF > /usr/local/etc/xray/config.json
       },
       {
         "type": "field",
+        "ip": ["geoip:ru"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
         "protocol": ["bittorrent"],
         "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        //"port": 53,
+        "network": "udp",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "warp"
       }
     ]
   },
@@ -227,6 +279,19 @@ cat << EOF > /usr/local/etc/xray/config.json
     {
       "protocol": "blackhole",
       "tag": "block"
+    },
+    {
+      "protocol": "socks",
+      "tag": "warp",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 1080,
+            "udp": true
+          }
+        ]
+      }
     }
   ]
 }
@@ -251,6 +316,17 @@ cat << EOF > /usr/local/etc/xray/config_with_russia.json
         "type": "field",
         "protocol": ["bittorrent"],
         "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        //"port": 53,
+        "network": "udp",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "warp"
       }
     ],
     "domainStrategy": "AsIs"
@@ -310,6 +386,19 @@ cat << EOF > /usr/local/etc/xray/config_with_russia.json
     {
       "protocol": "blackhole",
       "tag": "block"
+    },
+    {
+      "protocol": "socks",
+      "tag": "warp",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 1080,
+            "udp": true
+          }
+        ]
+      }
     }
   ]
 }
@@ -340,6 +429,17 @@ cat << EOF > /usr/local/etc/xray/config.json
         "type": "field",
         "protocol": ["bittorrent"],
         "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        //"port": 53,
+        "network": "udp",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "warp"
       }
     ],
     "domainStrategy": "AsIs"
@@ -399,6 +499,19 @@ cat << EOF > /usr/local/etc/xray/config.json
     {
       "protocol": "blackhole",
       "tag": "block"
+    },
+    {
+      "protocol": "socks",
+      "tag": "warp",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 1080,
+            "udp": true
+          }
+        ]
+      }
     }
   ]
 }
@@ -422,30 +535,46 @@ cat << EOF > /usr/local/etc/xray/config_without_russia.json
       },
       {
         "type": "field",
-        "ip": [
-          "geoip:ru"
+        "domain": [
+          "google.com",
+          "kgd.ru"
         ],
-        "outboundTag": "block"
+        "outboundTag": "direct"
       },
       {
         "type": "field",
         "domain": [
           "geosite:category-ru",
+          "geosite:category-gov-ru",
+          "geosite:yandex",
+          "geosite:vk",
+          "geosite:mailru",
           "regexp:.*\\.ru$",
           "regexp:.*\\.su$",
-          "regexp:.*\\.by$",
-          "regexp:.*\\.xn--p1ai$",
-          "domain:yandex.net",
-          "domain:ifconfig.me",
-          "domain:ipify.org",
-          "domain:checkip.amazonaws.com"
+          "regexp:.*\\.xn--p1ai$"
         ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": ["geoip:ru"],
         "outboundTag": "block"
       },
       {
         "type": "field",
         "protocol": ["bittorrent"],
         "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        //"port": 53,
+        "network": "udp",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "warp"
       }
     ]
   },
@@ -505,6 +634,19 @@ cat << EOF > /usr/local/etc/xray/config_without_russia.json
     {
       "protocol": "blackhole",
       "tag": "block"
+    },
+    {
+      "protocol": "socks",
+      "tag": "warp",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 1080,
+            "udp": true
+          }
+        ]
+      }
     }
   ]
 }
