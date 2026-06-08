@@ -128,6 +128,7 @@ volumes:
 EOF
 
 cd /opt/microwarp
+systemctl restart docker
 docker-compose up -d
 cd /root
 
