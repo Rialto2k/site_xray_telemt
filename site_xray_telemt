@@ -68,7 +68,7 @@ chmod +r /usr/local/etc/xray/xray_cert/*.key
 
 # 4. Скрипт обновления сертификатов (включая дополнительные домены)
 touch /usr/local/etc/xray/xray_cert/xray-cert-renew
-cat << EOF > /usr/local/etc/xray/xray_cert/xray-cert-renew
+cat << 'EOF' > /usr/local/etc/xray/xray_cert/xray-cert-renew
 #!/bin/bash
 ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc --fullchain-file /usr/local/etc/xray/xray_cert/xray.crt --key-file /usr/local/etc/xray/xray_cert/xray.key
 ~/.acme.sh/acme.sh --install-cert -d "ad.$domain" --ecc --fullchain-file /usr/local/etc/xray/xray_cert/xray_ad.crt --key-file /usr/local/etc/xray/xray_cert/xray_ad.key
@@ -106,7 +106,7 @@ fi
 #.6 Установка microWARP
 
 mkdir -p /opt/microwarp
-cat << EOF > /opt/microwarp/docker-compose.yml
+cat << 'EOF' > /opt/microwarp/docker-compose.yml
 version: '3.8'
 services:
   microwarp:
@@ -166,7 +166,7 @@ while true; do
         mkdir -p "/usr/local/share/xray"
         wget -q --show-progress -O "/usr/local/share/xray/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
         wget -q --show-progress -O "/usr/local/share/xray/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
-cat << EOF > /usr/local/etc/xray/config.json
+cat << 'EOF' > /usr/local/etc/xray/config.json
 {
   "log": {
     "loglevel": "warning",
@@ -301,7 +301,7 @@ cat << EOF > /usr/local/etc/xray/config.json
 }
 
 EOF
-cat << EOF > /usr/local/etc/xray/config_with_russia.json
+cat << 'EOF' > /usr/local/etc/xray/config_with_russia.json
 {
   "log": {
     "loglevel": "warning",
@@ -414,7 +414,7 @@ EOF
 	break  # выходим из цикла, продолжаем скрипт
     elif [[ "$answer" == "n" || "$answer" == "no" ]]; then
 
-cat << EOF > /usr/local/etc/xray/config.json
+cat << 'EOF' > /usr/local/etc/xray/config.json
 {
   "log": {
     "loglevel": "warning",
@@ -521,7 +521,7 @@ cat << EOF > /usr/local/etc/xray/config.json
 }
 
 EOF
-cat << EOF > /usr/local/etc/xray/config_without_russia.json
+cat << 'EOF' > /usr/local/etc/xray/config_without_russia.json
 {
   "log": {
     "loglevel": "warning",
@@ -681,7 +681,7 @@ systemctl restart xray
 # 9. Настройка Nginx
 
 
-cat << EOF > /etc/nginx/nginx.conf
+cat << 'EOF' > /etc/nginx/nginx.conf
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -800,7 +800,7 @@ stream {
 EOF
 
 
-cat << EOF > /etc/nginx/sites-available/default
+cat << 'EOF' > /etc/nginx/sites-available/default
 server {
         listen 80;
         server_name $domain ad.$domain ads.$domain;
@@ -874,7 +874,7 @@ secret=$(openssl rand -hex 16)
 # Конфигурация telemt
 mkdir -p /etc/telemt
 mkdir -p /opt/telemt
-cat << EOF > /etc/telemt/telemt.toml
+cat << 'EOF' > /etc/telemt/telemt.toml
 # === General Settings ===
 
 #[dc_overrides]
@@ -927,7 +927,7 @@ useradd -d /opt/telemt -m -r -U telemt
 chown -R telemt:telemt /etc/telemt
 
 # Создание systemd сервиса
-cat << EOF > /etc/systemd/system/telemt.service
+cat << 'EOF' > /etc/systemd/system/telemt.service
 [Unit]
 Description=Telemt
 After=network-online.target
