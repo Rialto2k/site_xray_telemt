@@ -680,6 +680,14 @@ systemctl restart xray
 
 # 9. Настройка Nginx
 
+mkdir -p /etc/systemd/system/nginx.service.d/
+
+cat << 'EOF' > /etc/systemd/system/nginx.service.d/override.conf
+[Service]
+LimitNOFILE=65536
+LimitNPROC=65536
+EOF
+
 
 cat << 'EOF' > /etc/nginx/nginx.conf
 user www-data;
