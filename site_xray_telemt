@@ -83,13 +83,17 @@ chmod +x /usr/local/etc/xray/xray_cert/xray-cert-renew
 # Добавляем в cron (ежемесячно)
 crontab -l 2>/dev/null | grep -q "xray-cert-renew" || (crontab -l 2>/dev/null; echo "0 1 1 * * bash /usr/local/etc/xray/xray_cert/xray-cert-renew") | crontab -
 
-# 5. Включение BBR
+# 5. Включение BBR выключение IPv6 и настройки для telemt
 bbr=$(sysctl -a 2>/dev/null | grep net.ipv4.tcp_congestion_control | grep bbr || true)
 if [ -n "$bbr" ]; then
-    echo "bbr уже включен"
+    echo "BBR уже включен"
 else
     echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    sysctl -p
+    echo "BBR включен"
+fi
+
     echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
     echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
     echo "net.ipv6.conf.lo.disable_ipv6 = 1" >> /etc/sysctl.conf
@@ -97,11 +101,6 @@ else
     echo "net.ipv4.tcp_max_tw_buckets=16386" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_fin_timeout = 20" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
-
-    sysctl -p
-    echo "bbr включен"
-fi
-
 
 #.6 Установка microWARP
 
