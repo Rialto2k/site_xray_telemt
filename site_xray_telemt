@@ -699,6 +699,7 @@ done
 
 link="vless://$uuid@$domain:443?security=tls&alpn=http%2F1.1&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=ad.$domain&headerType=none&encryption=none#VPN"
 
+systemctl daemon-reload
 systemctl restart xray
 
 
@@ -890,7 +891,7 @@ server {
 }
 EOF
 
-
+systemctl daemon-reload
 systemctl restart nginx
 
 # 10. Установка telemt по гайду
@@ -989,6 +990,7 @@ systemctl start telemt
 sleep 1
 
 # 11. Завершение и вывод информации
+systemctl daemon-reload
 systemctl restart xray
 echo ""
 echo ""
