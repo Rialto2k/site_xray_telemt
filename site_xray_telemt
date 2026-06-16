@@ -716,6 +716,15 @@ LimitNOFILE=65536
 LimitNPROC=65536
 EOF
 
+cat << 'EOF' > /etc/nginx/check_open_socket.txt
+sysctl -p
+
+netstat -s | grep -E "SYNs to LISTEN|pruned|collapsed"
+
+ss -tan | awk 'NR>1 {print $1}' | sort | uniq -c | sort -rn
+
+top -bn1 | head -10
+EOF
 
 cat << 'EOF' > /etc/nginx/nginx.conf
 user www-data;
