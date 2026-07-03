@@ -110,12 +110,12 @@ fi
     echo "net.ipv4.tcp_keepalive_intvl = 20" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_keepalive_probes = 5" >> /etc/sysctl.conf
     echo "" >> /etc/sysctl.conf
-    echo "net.core.rmem_max = 67108864" >> /etc/sysctl.conf
-    echo "net.core.wmem_max = 67108864" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_rmem = 4096 16777216 67108864" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_wmem = 4096 16777216 67108864" >> /etc/sysctl.conf
-    echo "net.core.rmem_default=16777216" >> /etc/sysctl.conf
-    echo "net.core.wmem_default=16777216" >> /etc/sysctl.conf
+    echo "net.core.rmem_max = 134217728" >> /etc/sysctl.conf
+    echo "net.core.wmem_max = 134217728" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_rmem = 4096 33554432 134217728" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_wmem = 4096 33554432 134217728" >> /etc/sysctl.conf
+    echo "net.core.rmem_default=33554432" >> /etc/sysctl.conf
+    echo "net.core.wmem_default=33554432" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_fastopen = 3" >> /etc/sysctl.conf
 
 
