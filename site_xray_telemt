@@ -72,6 +72,15 @@ cd -
 
 
 # 4. Получение сертификатов для domain, ad.domain и ads.domain
+
+# Проверяем, существуют ли все три файла сертификатов
+if [ -f /usr/local/etc/xray/xray_cert/xray.key ] && \
+   [ -f /usr/local/etc/xray/xray_cert/xray_ad.key ] && \
+   [ -f /usr/local/etc/xray/xray_cert/xray_ads.key ]; then
+    echo "✅ Все сертификаты уже существуют — пропускаем генерацию"
+
+else
+
 wget -O - https://get.acme.sh | sh
 ~/.acme.sh/acme.sh --upgrade --auto-upgrade
 
@@ -117,6 +126,10 @@ chmod +x /usr/local/etc/xray/xray_cert/xray-cert-renew
 
 # Добавляем в cron (ежемесячно)
 crontab -l 2>/dev/null | grep -q "xray-cert-renew" || (crontab -l 2>/dev/null; echo "0 1 1 * * bash /usr/local/etc/xray/xray_cert/xray-cert-renew") | crontab -
+
+fi
+
+
 
 #.6 Установка microWARP
 
