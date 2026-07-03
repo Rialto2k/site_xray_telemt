@@ -171,7 +171,7 @@ cat << 'EOF' > /etc/systemd/system/xray.service.d/override.conf
 [Service]
 [Service]
 ListenBacklog=32768
-Environment="XRAY_RAY_BUFFER_SIZE=16"
+Environment="XRAY_RAY_BUFFER_SIZE=32"
 EOF
 
 
