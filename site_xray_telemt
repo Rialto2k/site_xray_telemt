@@ -232,9 +232,9 @@ cat << EOF > /usr/local/etc/xray/config.json
           "geosite:yandex",
           "geosite:vk",
           "geosite:mailru",
-          "regexp:.*\\.ru$",
-          "regexp:.*\\.su$",
-          "regexp:.*\\.xn--p1ai$"
+          "regexp:.*\\\\.ru$",
+          "regexp:.*\\\\.su$",
+          "regexp:.*\\\\.xn--p1ai$"
         ],
         "outboundTag": "block"
       },
@@ -587,9 +587,9 @@ cat << EOF > /usr/local/etc/xray/config_without_russia.json
           "geosite:yandex",
           "geosite:vk",
           "geosite:mailru",
-          "regexp:.*\\.ru$",
-          "regexp:.*\\.su$",
-          "regexp:.*\\.xn--p1ai$"
+          "regexp:.*\\\\.ru$",
+          "regexp:.*\\\\.su$",
+          "regexp:.*\\\\.xn--p1ai$"
         ],
         "outboundTag": "block"
       },
