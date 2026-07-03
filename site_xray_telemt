@@ -107,6 +107,8 @@ mkdir -p /usr/local/etc/xray/xray_cert/
 
 chmod +r /usr/local/etc/xray/xray_cert/*.key
 
+fi
+
 # 5. Скрипт обновления сертификатов (включая дополнительные домены)
 touch /usr/local/etc/xray/xray_cert/xray-cert-renew
 cat << EOF > /usr/local/etc/xray/xray_cert/xray-cert-renew
@@ -123,9 +125,6 @@ chmod +x /usr/local/etc/xray/xray_cert/xray-cert-renew
 
 # Добавляем в cron (ежемесячно)
 crontab -l 2>/dev/null | grep -q "xray-cert-renew" || (crontab -l 2>/dev/null; echo "0 1 1 * * bash /usr/local/etc/xray/xray_cert/xray-cert-renew") | crontab -
-
-fi
-
 
 
 #.6 Установка microWARP
