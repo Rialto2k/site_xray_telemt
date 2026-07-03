@@ -18,12 +18,47 @@ echo "=== Начинаем установку для домена $domain ==="
 apt update
 apt install -y curl wget nginx-full qrencode jq openssl unzip docker-compose net-tools
 
-
-
 echo "130.255.77.28 ntc.party" >> /etc/hosts
 
+# 2. Настройка BBR, отключение IPv6 и оптимизация TCP
+params=(
+    "net.core.default_qdisc=fq"
+    "net.ipv4.tcp_congestion_control=bbr"
+    "net.ipv6.conf.all.disable_ipv6=1"
+    "net.ipv6.conf.default.disable_ipv6=1"
+    "net.ipv6.conf.lo.disable_ipv6=1"
+    "net.ipv4.tcp_max_tw_buckets=16386"
+    "net.ipv4.tcp_fin_timeout=15"
+    "net.ipv4.tcp_tw_reuse=1"
+    "net.core.netdev_max_backlog=20000"
+    "net.core.somaxconn=32768"
+    "net.ipv4.tcp_max_syn_backlog=32768"
+    "net.ipv4.tcp_syncookies=1"
+    "net.ipv4.tcp_keepalive_time=120"
+    "net.ipv4.tcp_keepalive_intvl=20"
+    "net.ipv4.tcp_keepalive_probes=5"
+    "net.core.rmem_max=134217728"
+    "net.core.wmem_max=134217728"
+    "net.ipv4.tcp_rmem=4096 33554432 134217728"
+    "net.ipv4.tcp_wmem=4096 33554432 134217728"
+    "net.core.rmem_default=33554432"
+    "net.core.wmem_default=33554432"
+    "net.ipv4.tcp_fastopen=3"
+    "net.ipv4.tcp_keepalive_time = 120"
+    "net.ipv4.tcp_keepalive_intvl = 20"
+    "net.ipv4.tcp_keepalive_probes = 5"
+)
 
-# 2. Скачивание и распаковка шаблона сайта
+for param in "${params[@]}"; do
+    key="${param%%=*}"
+    sed -i "/^${key}/d" /etc/sysctl.conf
+    echo "$param" >> /etc/sysctl.conf
+done
+
+sysctl -p
+
+
+# 3. Скачивание и распаковка шаблона сайта
 echo "=== Подготавливаем веб-корень и устанавливаем шаблон сайта Sleeky Pro ==="
 mkdir -p /var/www/html
 cd /tmp
@@ -36,7 +71,7 @@ rm -rf sleeky_pro.zip templatemo_598_sleeky_pro
 cd -
 
 
-# 3. Получение сертификатов для domain, ad.domain и ads.domain
+# 4. Получение сертификатов для domain, ad.domain и ads.domain
 wget -O - https://get.acme.sh | sh
 ~/.acme.sh/acme.sh --upgrade --auto-upgrade
 
@@ -66,7 +101,7 @@ mkdir -p /usr/local/etc/xray/xray_cert/
 
 chmod +r /usr/local/etc/xray/xray_cert/*.key
 
-# 4. Скрипт обновления сертификатов (включая дополнительные домены)
+# 5. Скрипт обновления сертификатов (включая дополнительные домены)
 touch /usr/local/etc/xray/xray_cert/xray-cert-renew
 cat << 'EOF' > /usr/local/etc/xray/xray_cert/xray-cert-renew
 #!/bin/bash
@@ -82,42 +117,6 @@ chmod +x /usr/local/etc/xray/xray_cert/xray-cert-renew
 
 # Добавляем в cron (ежемесячно)
 crontab -l 2>/dev/null | grep -q "xray-cert-renew" || (crontab -l 2>/dev/null; echo "0 1 1 * * bash /usr/local/etc/xray/xray_cert/xray-cert-renew") | crontab -
-
-# 5. Включение BBR выключение IPv6 и настройки для telemt
-bbr=$(sysctl -a 2>/dev/null | grep net.ipv4.tcp_congestion_control | grep bbr || true)
-if [ -n "$bbr" ]; then
-    echo "BBR уже включен"
-else
-    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-    sysctl -p
-    echo "BBR включен"
-fi
-    echo "" >> /etc/sysctl.conf
-    echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
-    echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
-    echo "net.ipv6.conf.lo.disable_ipv6 = 1" >> /etc/sysctl.conf
-    echo "" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_max_tw_buckets=16386" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_fin_timeout = 15" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
-    echo "net.core.netdev_max_backlog=20000" >> /etc/sysctl.conf
-    echo "net.core.somaxconn=32768" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_max_syn_backlog=32768" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_syncookies=1" >> /etc/sysctl.conf
-    echo "" >> /etc/sysctl.conf   
-    echo "net.ipv4.tcp_keepalive_time = 120" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_keepalive_intvl = 20" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_keepalive_probes = 5" >> /etc/sysctl.conf
-    echo "" >> /etc/sysctl.conf
-    echo "net.core.rmem_max = 134217728" >> /etc/sysctl.conf
-    echo "net.core.wmem_max = 134217728" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_rmem = 4096 33554432 134217728" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_wmem = 4096 33554432 134217728" >> /etc/sysctl.conf
-    echo "net.core.rmem_default=33554432" >> /etc/sysctl.conf
-    echo "net.core.wmem_default=33554432" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_fastopen = 3" >> /etc/sysctl.conf
-
 
 #.6 Установка microWARP
 
@@ -147,7 +146,7 @@ cd /opt/microwarp
 
 systemctl daemon-reload
 systemctl restart docker
-docker-compose up -d
+docker-compose up -d || docker compose up -d
 cd /root
 
 
