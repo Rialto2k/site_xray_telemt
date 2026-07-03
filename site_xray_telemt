@@ -7,8 +7,8 @@ set -e
 
 # Проверка наличия домена
 if [ -z "$domain" ]; then
-    echo "Ошибка: не задана переменная domain"
-    echo "Используйте: export domain=ваш-домен.ru && bash $0"
+    echo -e "\033[1;31mОшибка: не задана переменная domain\033[0m"
+    echo -e "\033[1;31mИспользуйте: export domain=ваш-домен.ru\033[0m"
     exit 1
 fi
 
@@ -16,7 +16,7 @@ echo "=== Начинаем установку для домена $domain ==="
 
 # 1. Обновление системы и установка базовых пакетов
 apt update
-apt install -y curl wget nginx-full qrencode jq openssl unzip docker-compose net-tools
+apt install -y curl wget nginx-full qrencode jq openssl unzip docker.io docker-compose net-tools
 
 echo "130.255.77.28 ntc.party" >> /etc/hosts
 
@@ -44,9 +44,6 @@ params=(
     "net.core.rmem_default=33554432"
     "net.core.wmem_default=33554432"
     "net.ipv4.tcp_fastopen=3"
-    "net.ipv4.tcp_keepalive_time = 120"
-    "net.ipv4.tcp_keepalive_intvl = 20"
-    "net.ipv4.tcp_keepalive_probes = 5"
 )
 
 for param in "${params[@]}"; do
@@ -112,7 +109,7 @@ chmod +r /usr/local/etc/xray/xray_cert/*.key
 
 # 5. Скрипт обновления сертификатов (включая дополнительные домены)
 touch /usr/local/etc/xray/xray_cert/xray-cert-renew
-cat << 'EOF' > /usr/local/etc/xray/xray_cert/xray-cert-renew
+cat << EOF > /usr/local/etc/xray/xray_cert/xray-cert-renew
 #!/bin/bash
 ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc --fullchain-file /usr/local/etc/xray/xray_cert/xray.crt --key-file /usr/local/etc/xray/xray_cert/xray.key
 ~/.acme.sh/acme.sh --install-cert -d "ad.$domain" --ecc --fullchain-file /usr/local/etc/xray/xray_cert/xray_ad.crt --key-file /usr/local/etc/xray/xray_cert/xray_ad.key
@@ -181,7 +178,6 @@ mkdir -p /etc/systemd/system/xray.service.d/
 
 cat << 'EOF' > /etc/systemd/system/xray.service.d/override.conf
 [Service]
-[Service]
 ListenBacklog=32768
 Environment="XRAY_RAY_BUFFER_SIZE=32"
 EOF
@@ -205,7 +201,7 @@ while true; do
         mkdir -p "/usr/local/share/xray"
         wget -q --show-progress -O "/usr/local/share/xray/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
         wget -q --show-progress -O "/usr/local/share/xray/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
-cat << 'EOF' > /usr/local/etc/xray/config.json
+cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
     "loglevel": "warning",
@@ -340,7 +336,7 @@ cat << 'EOF' > /usr/local/etc/xray/config.json
 }
 
 EOF
-cat << 'EOF' > /usr/local/etc/xray/config_with_russia.json
+cat << EOF > /usr/local/etc/xray/config_with_russia.json
 {
   "log": {
     "loglevel": "warning",
@@ -450,10 +446,10 @@ EOF
 
         echo "Добавлены файлы geoip.dat geosite.dat, создан конфиг XRAY с блокировками"
         echo "" 
-	break  # выходим из цикла, продолжаем скрипт
+	  break  # выходим из цикла, продолжаем скрипт
     elif [[ "$answer" == "n" || "$answer" == "no" ]]; then
 
-cat << 'EOF' > /usr/local/etc/xray/config.json
+cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
     "loglevel": "warning",
@@ -560,7 +556,7 @@ cat << 'EOF' > /usr/local/etc/xray/config.json
 }
 
 EOF
-cat << 'EOF' > /usr/local/etc/xray/config_without_russia.json
+cat << EOF > /usr/local/etc/xray/config_without_russia.json
 {
   "log": {
     "loglevel": "warning",
@@ -738,7 +734,7 @@ ss -tan | awk 'NR>1 {print $1}' | sort | uniq -c | sort -rn
 top -bn1 | head -10
 EOF
 
-cat << 'EOF' > /etc/nginx/nginx.conf
+cat << EOF > /etc/nginx/nginx.conf
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -809,13 +805,13 @@ http {
 
 stream {
 
-    log_format stream '$remote_addr [$time_local] host=$ssl_preread_server_name '
-                      'prot=$protocol status=$status out=$bytes_sent in=$bytes_received';
+    log_format stream '\$remote_addr [$time_local] host=\$ssl_preread_server_name '
+                      'prot=\$protocol status=\$status out=\$bytes_sent in=\$bytes_received';
 
     #access_log /var/log/nginx/stream_access.log stream;
     #error_log /var/log/nginx/stream_error.log info;
 
-    map $ssl_preread_server_name $backend_name {
+    map \$ssl_preread_server_name \$backend_name {
 
       ads.$domain   tg_proxy;       # запросы на ads.$domain будут отправляться на mtproxy
       ad.$domain 		xray_backend;   # запросы на ad.$domain будут отправляться на XRAY
@@ -841,7 +837,7 @@ stream {
 
     server {
         listen 443 backlog=16384 fastopen=512;
-        proxy_pass $backend_name;
+        proxy_pass \$backend_name;
         ssl_preread on; # включаем pre-read ssl протокола чтобы получить hostname из запроса
         proxy_protocol on; # включаем proxy_protocol чтобы передать реальный IP адрес клиента по цепочке
         
@@ -856,11 +852,11 @@ stream {
 EOF
 
 
-cat << 'EOF' > /etc/nginx/sites-available/default
+cat << EOF > /etc/nginx/sites-available/default
 server {
         listen 80;
         server_name $domain ad.$domain ads.$domain;
-        return 301 https://$http_host$request_uri;
+        return 301 https://\$http_host\$request_uri;
        }
 
 
@@ -930,7 +926,7 @@ secret=$(openssl rand -hex 16)
 # Конфигурация telemt
 mkdir -p /etc/telemt
 mkdir -p /opt/telemt
-cat << 'EOF' > /etc/telemt/telemt.toml
+cat << EOF > /etc/telemt/telemt.toml
 # === General Settings ===
 
 #[dc_overrides]
@@ -979,7 +975,7 @@ hello = "$secret"
 EOF
 
 # Создание пользователя telemt
-useradd -d /opt/telemt -m -r -U telemt
+id -u telemt &>/dev/null || useradd -d /opt/telemt -m -r -U telemt
 chown -R telemt:telemt /etc/telemt
 chown -R telemt:telemt /opt/telemt
 chmod -R 770 /opt/telemt
