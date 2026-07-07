@@ -37,13 +37,19 @@ params=(
     "net.ipv4.tcp_keepalive_time=120"
     "net.ipv4.tcp_keepalive_intvl=20"
     "net.ipv4.tcp_keepalive_probes=5"
+    "net.ipv4.tcp_moderate_rcvbuf=1"
     "net.core.rmem_max=134217728"
     "net.core.wmem_max=134217728"
-    "net.ipv4.tcp_rmem=4096 33554432 134217728"
-    "net.ipv4.tcp_wmem=4096 33554432 134217728"
-    "net.core.rmem_default=33554432"
-    "net.core.wmem_default=33554432"
+    "net.core.rmem_default=262144"
+    "net.core.wmem_default=262144"
+    "net.ipv4.tcp_mem=262144 524288 786432"
+    "net.ipv4.tcp_rmem=4096 262144 134217728"
+    "net.ipv4.tcp_wmem=4096 262144 134217728"
     "net.ipv4.tcp_fastopen=3"
+    "net.ipv4.tcp_keepalive_time=120"
+    "net.ipv4.tcp_keepalive_intvl=20"
+    "net.ipv4.tcp_keepalive_probes=5"
+
 )
 
 for param in "${params[@]}"; do
