@@ -1,0 +1,833 @@
+#!/bin/bash
+# Объединённый скрипт установки Xray (self-sni) + telemt + шаблон сайта
+# Перед запуском задайте переменную с именем вашего домена:
+# export domain=ваш-домен.ru
+
+set -e
+
+# Проверка наличия домена
+if [ -z "$domain" ]; then
+    echo -e "\033[1;31mОшибка: не задана переменная domain\033[0m"
+    echo -e "\033[1;31mИспользуйте: export domain=ваш-домен.ru\033[0m"
+    exit 1
+fi
+
+echo "\033[1;32m=== Начинаем установку для домена $domain ===\033[0m"
+
+# 0. Проверка и установка whiptail
+if ! command -v whiptail &> /dev/null; then
+    echo "Утилита whiptail не найдена. Устанавливаем..."
+    apt update && apt install -y whiptail
+fi
+
+# 0.1 Выбор типа домена (radiolist)
+domain_type=$(whiptail --title "Тип домена" \
+    --radiolist "Выберите тип домена:" 15 60 2 \
+    "single"   "Один домен (только $domain)" ON \
+    "wildcard" "Wildcard (с поддоменами ad. и ads.)" OFF \
+    3>&1 1>&2 2>&3)
+
+if [ $? -ne 0 ]; then
+    echo "Отмена выбора. Выход."
+    exit 0
+fi
+domain_type=$(echo "$domain_type" | tr -d '"')
+
+# 0.2 Выбор конфигурации Xray (radiolist)
+config_choice=$(whiptail --title "Конфигурация Xray" \
+    --radiolist "Выберите тип конфигурации для Xray (VPN):" 15 60 2 \
+    "russia"   "С блокировкой российских доменов и IP" ON \
+    "norussia" "Без блокировки (только рекламный домен и торренты)" OFF \
+    3>&1 1>&2 2>&3)
+
+if [ $? -ne 0 ]; then
+    echo "Отмена выбора. Выход."
+    exit 0
+fi
+config_choice=$(echo "$config_choice" | tr -d '"')
+
+# 0.3 Выбор дополнительных компонентов (checklist)
+extra_choice=$(whiptail --title "Дополнительные компоненты" \
+    --checklist "Отметьте нужные компоненты (пробел — выбрать/снять):" 15 60 2 \
+    "telemt" "Установить telemt (Telegram MTProto прокси)" ON \
+    "warp"   "Установить microWARP (выход через WARP)" ON \
+    3>&1 1>&2 2>&3)
+
+if [ $? -ne 0 ]; then
+    echo "Отмена выбора. Выход."
+    exit 0
+fi
+
+install_telemt=false
+install_warp=false
+for item in $(echo "$extra_choice" | tr -d '"'); do
+    case $item in
+        telemt) install_telemt=true ;;
+        warp)   install_warp=true ;;
+    esac
+done
+
+config_with_russia=false
+[ "$config_choice" = "russia" ] && config_with_russia=true
+
+# 0.4 Запрос порта для telemt (если выбран и тип single)
+telemt_port=""
+if [ "$install_telemt" = true ] && [ "$domain_type" = "single" ]; then
+    telemt_port=$(whiptail --title "Порт для telemt" \
+        --inputbox "Укажите порт для telemt (не 443):" 10 60 "8443" \
+        3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ] || [ -z "$telemt_port" ]; then
+        echo "Отмена или пустой порт. Выход."
+        exit 0
+    fi
+    # Проверка, что порт не 443
+    if [ "$telemt_port" = "443" ]; then
+        whiptail --msgbox "Порт 443 нельзя использовать для telemt. Выберите другой." 8 40
+        exit 1
+    fi
+fi
+
+echo "Выбран тип домена: $domain_type"
+echo "Конфигурация Xray: $config_choice"
+echo "Установка telemt: $install_telemt"
+echo "Установка microWARP: $install_warp"
+[ -n "$telemt_port" ] && echo "Порт telemt: $telemt_port"
+
+# 1. Обновление системы и базовые пакеты
+apt update
+apt install -y curl wget nginx-full qrencode jq openssl unzip net-tools
+if [ "$install_warp" = true ]; then
+    apt install -y docker.io docker-compose
+fi
+
+echo "130.255.77.28 ntc.party" >> /etc/hosts
+
+# 2. Настройка BBR и sysctl
+touch /etc/sysctl.conf   # создаём, если отсутствует
+params=(
+    "net.core.default_qdisc=fq"
+    "net.ipv4.tcp_congestion_control=bbr"
+    "net.ipv6.conf.all.disable_ipv6=1"
+    "net.ipv6.conf.default.disable_ipv6=1"
+    "net.ipv6.conf.lo.disable_ipv6=1"
+    "net.ipv4.tcp_max_tw_buckets=16386"
+    "net.ipv4.tcp_fin_timeout=15"
+    "net.ipv4.tcp_tw_reuse=1"
+    "net.core.netdev_max_backlog=20000"
+    "net.core.somaxconn=32768"
+    "net.ipv4.tcp_max_syn_backlog=32768"
+    "net.ipv4.tcp_syncookies=1"
+    "net.ipv4.tcp_keepalive_time=120"
+    "net.ipv4.tcp_keepalive_intvl=20"
+    "net.ipv4.tcp_keepalive_probes=5"
+    "net.ipv4.tcp_moderate_rcvbuf=1"
+    "net.core.rmem_max=134217728"
+    "net.core.wmem_max=134217728"
+    "net.core.rmem_default=262144"
+    "net.core.wmem_default=262144"
+    "net.ipv4.tcp_mem=262144 524288 786432"
+    "net.ipv4.tcp_rmem=4096 262144 134217728"
+    "net.ipv4.tcp_wmem=4096 262144 134217728"
+    "net.ipv4.tcp_fastopen=3"
+    "net.ipv4.tcp_keepalive_time=120"
+    "net.ipv4.tcp_keepalive_intvl=20"
+    "net.ipv4.tcp_keepalive_probes=5"
+)
+
+for param in "${params[@]}"; do
+    key="${param%%=*}"
+    sed -i "/^${key}/d" /etc/sysctl.conf
+    echo "$param" >> /etc/sysctl.conf
+done
+sysctl -p
+
+# 3. Шаблон сайта
+echo "=== Подготавливаем веб-корень и устанавливаем шаблон сайта Sleeky Pro ==="
+mkdir -p /var/www/html
+cd /tmp
+wget -O sleeky_pro.zip https://templatemo.com/tm-zip-files-2020/templatemo_598_sleeky_pro.zip
+unzip -o sleeky_pro.zip
+cp -rf templatemo_598_sleeky_pro/* /var/www/html/
+rm -rf sleeky_pro.zip templatemo_598_sleeky_pro
+cd -
+
+# 4. Сертификаты
+cert_dir="/usr/local/etc/xray/xray_cert"
+mkdir -p "$cert_dir"
+
+if [ "$domain_type" = "single" ]; then
+    if [ -f "$cert_dir/xray.crt" ] && [ -f "$cert_dir/xray.key" ]; then
+        echo "✅ Сертификат для $domain уже существует — пропускаем"
+    else
+        wget -O - https://get.acme.sh | sh
+        ~/.acme.sh/acme.sh --upgrade --auto-upgrade
+        ~/.acme.sh/acme.sh --issue --server letsencrypt -d "$domain" -w /var/www/html --keylength ec-256 --force
+        ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
+            --fullchain-file "$cert_dir/xray.crt" \
+            --key-file "$cert_dir/xray.key"
+        chmod +r "$cert_dir/xray.key"
+    fi
+else
+    if [ -f "$cert_dir/xray.key" ] && [ -f "$cert_dir/xray_ad.key" ] && [ -f "$cert_dir/xray_ads.key" ]; then
+        echo "✅ Все сертификаты уже существуют — пропускаем"
+    else
+        wget -O - https://get.acme.sh | sh
+        ~/.acme.sh/acme.sh --upgrade --auto-upgrade
+        for d in "$domain" "ad.$domain" "ads.$domain"; do
+            ~/.acme.sh/acme.sh --issue --server letsencrypt -d "$d" -w /var/www/html --keylength ec-256 --force
+        done
+        ~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc \
+            --fullchain-file "$cert_dir/xray.crt" \
+            --key-file "$cert_dir/xray.key"
+        ~/.acme.sh/acme.sh --install-cert -d "ad.$domain" --ecc \
+            --fullchain-file "$cert_dir/xray_ad.crt" \
+            --key-file "$cert_dir/xray_ad.key"
+        ~/.acme.sh/acme.sh --install-cert -d "ads.$domain" --ecc \
+            --fullchain-file "$cert_dir/xray_ads.crt" \
+            --key-file "$cert_dir/xray_ads.key"
+        chmod +r "$cert_dir"/*.key
+    fi
+fi
+
+# 5. Скрипт обновления сертификатов
+if [ "$domain_type" = "single" ]; then
+    cat << EOF > "$cert_dir/xray-cert-renew"
+#!/bin/bash
+~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc --fullchain-file "$cert_dir/xray.crt" --key-file "$cert_dir/xray.key"
+chmod +r "$cert_dir/xray.key"
+systemctl restart xray
+systemctl restart nginx
+EOF
+else
+    cat << EOF > "$cert_dir/xray-cert-renew"
+#!/bin/bash
+~/.acme.sh/acme.sh --install-cert -d "$domain" --ecc --fullchain-file "$cert_dir/xray.crt" --key-file "$cert_dir/xray.key"
+~/.acme.sh/acme.sh --install-cert -d "ad.$domain" --ecc --fullchain-file "$cert_dir/xray_ad.crt" --key-file "$cert_dir/xray_ad.key"
+~/.acme.sh/acme.sh --install-cert -d "ads.$domain" --ecc --fullchain-file "$cert_dir/xray_ads.crt" --key-file "$cert_dir/xray_ads.key"
+chmod +r "$cert_dir"/*.key
+systemctl restart xray
+systemctl restart nginx
+EOF
+fi
+chmod +x "$cert_dir/xray-cert-renew"
+crontab -l 2>/dev/null | grep -q "xray-cert-renew" || (crontab -l 2>/dev/null; echo "0 1 1 * * bash $cert_dir/xray-cert-renew") | crontab -
+
+# 6. Установка microWARP (если выбран)
+if [ "$install_warp" = true ]; then
+    echo "=== Установка microWARP ==="
+    mkdir -p /opt/microwarp
+    cat << 'EOF' > /opt/microwarp/docker-compose.yml
+version: '3.8'
+services:
+  microwarp:
+    image: ghcr.io/ccbkkb/microwarp:latest
+    container_name: microwarp
+    restart: always
+    ports:
+      - "127.0.0.1:1080:1080"
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - warp-data:/etc/wireguard
+volumes:
+  warp-data:
+EOF
+    cd /opt/microwarp
+    systemctl daemon-reload
+    systemctl restart docker
+    docker-compose up -d || docker compose up -d
+    cd /root
+fi
+
+# 7. Установка Xray
+bash -c "$(curl -4 -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+mkdir -p /var/log/xray/
+
+# Генерация ключей
+[ -f /usr/local/etc/xray/.keys ] && rm /usr/local/etc/xray/.keys
+touch /usr/local/etc/xray/.keys
+echo "shortsid: $(openssl rand -hex 8)" >> /usr/local/etc/xray/.keys
+sleep 2
+uuid=$(/usr/local/bin/xray uuid 2>/dev/null || xray uuid)
+echo "uuid: $uuid" >> /usr/local/etc/xray/.keys
+echo "domain: $domain" >> /usr/local/etc/xray/.keys
+
+mkdir -p /etc/systemd/system/xray.service.d/
+cat << 'EOF' > /etc/systemd/system/xray.service.d/override.conf
+[Service]
+ListenBacklog=32768
+Environment="XRAY_RAY_BUFFER_SIZE=32"
+EOF
+
+# 8. Генерация конфигурации Xray
+echo "=== Генерация конфигурации Xray ==="
+
+if [ "$domain_type" = "single" ]; then
+    sni_domain="$domain"
+    cert_file="$cert_dir/xray.crt"
+    key_file="$cert_dir/xray.key"
+    inbound_port=443
+    fallback_dest=8080
+    use_proxy_protocol=false
+    sockopt_block=""
+else
+    sni_domain="ad.$domain"
+    cert_file="$cert_dir/xray_ad.crt"
+    key_file="$cert_dir/xray_ad.key"
+    inbound_port=4443
+    fallback_dest=8080
+    use_proxy_protocol=true
+    sockopt_block='"sockopt": { "acceptProxyProtocol": true },'
+fi
+
+# Базовый конфиг (без warp)
+if [ "$config_with_russia" = true ]; then
+    mkdir -p "/usr/local/share/xray"
+    wget -q --show-progress -O "/usr/local/share/xray/geoip.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+    wget -q --show-progress -O "/usr/local/share/xray/geosite.dat" "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+    cat << EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "none",
+    "error": "/var/log/xray/error.log"
+  },
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "domain": ["$sni_domain"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "google.com",
+          "kgd.ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-ru",
+          "geosite:category-gov-ru",
+          "geosite:yandex",
+          "geosite:vk",
+          "geosite:mailru",
+          "regexp:.*\\\\.ru$",
+          "regexp:.*\\\\.su$",
+          "regexp:.*\\\\.xn--p1ai$"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": ["geoip:ru"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "network": "udp",
+        "outboundTag": "direct"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "port": $inbound_port,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "main",
+            "id": "$uuid",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": $fallback_dest,
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        $sockopt_block
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "$cert_file",
+              "keyFile": "$key_file"
+            }
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": false
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "targetStrategy": "ForceIPv4",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
+}
+EOF
+else
+    cat << EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "none",
+    "error": "/var/log/xray/error.log"
+  },
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "domain": ["$sni_domain"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "network": "udp",
+        "outboundTag": "direct"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "port": $inbound_port,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "main",
+            "id": "$uuid",
+            "flow": "xtls-rprx-vision",
+            "level": 0
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": $fallback_dest,
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        $sockopt_block
+        "tlsSettings": {
+          "fingerprint": "chrome",
+          "alpn": ["http/1.1"],
+          "certificates": [
+            {
+              "certificateFile": "$cert_file",
+              "keyFile": "$key_file"
+            }
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "targetStrategy": "ForceIPv4",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
+}
+EOF
+fi
+
+# Если выбран warp, добавляем outbound и правило
+if [ "$install_warp" = true ]; then
+    echo "Добавляем поддержку WARP в конфиг Xray..."
+    tmp_outbound=$(mktemp)
+    cat << 'EOF' > "$tmp_outbound"
+{
+  "protocol": "socks",
+  "tag": "warp",
+  "settings": {
+    "servers": [
+      {
+        "address": "127.0.0.1",
+        "port": 1080,
+        "udp": true
+      }
+    ]
+  }
+}
+EOF
+    jq --argjson new "$(cat $tmp_outbound)" '.outbounds += [$new]' /usr/local/etc/xray/config.json > /tmp/config.tmp && mv /tmp/config.tmp /usr/local/etc/xray/config.json
+    rm -f "$tmp_outbound"
+    jq '.routing.rules += [{"type": "field", "network": "tcp,udp", "outboundTag": "warp"}]' /usr/local/etc/xray/config.json > /tmp/config.tmp && mv /tmp/config.tmp /usr/local/etc/xray/config.json
+fi
+
+# 9. Настройка Nginx
+mkdir -p /etc/systemd/system/nginx.service.d/
+cat << 'EOF' > /etc/systemd/system/nginx.service.d/override.conf
+[Service]
+LimitNOFILE=65536
+LimitNPROC=65536
+EOF
+
+# Генерация nginx.conf в зависимости от типа домена
+if [ "$domain_type" = "wildcard" ]; then
+    cat << EOF > /etc/nginx/nginx.conf
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+include /etc/nginx/modules-enabled/*.conf;
+
+worker_rlimit_nofile 32768;
+
+events {
+    worker_connections 8192;
+    multi_accept on;
+    use epoll;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    types_hash_max_size 2048;
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    access_log /var/log/nginx/access.log;
+    gzip on;
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+
+stream {
+    log_format stream '\$remote_addr [$time_local] host=\$ssl_preread_server_name '
+                      'prot=\$protocol status=\$status out=\$bytes_sent in=\$bytes_received';
+
+    map \$ssl_preread_server_name \$backend_name {
+      ads.$domain   tg_proxy;
+      ad.$domain    xray_backend;
+      www.$domain   nginx_https;
+      default       nginx_https;
+    }
+
+    upstream tg_proxy {
+        server 127.0.0.1:7788;
+    }
+
+    upstream nginx_https {
+        server 127.0.0.1:8443;
+    }
+
+    upstream xray_backend {
+        server 127.0.0.1:4443;
+    }
+
+    server {
+        listen 443 backlog=16384 fastopen=512;
+        proxy_pass \$backend_name;
+        ssl_preread on;
+        proxy_protocol on;
+        proxy_connect_timeout 5s;
+        proxy_timeout 5m;
+        proxy_socket_keepalive on;
+        tcp_nodelay on;
+    }
+}
+EOF
+else
+    # single: только http, без stream
+    cat << EOF > /etc/nginx/nginx.conf
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+include /etc/nginx/modules-enabled/*.conf;
+
+worker_rlimit_nofile 32768;
+
+events {
+    worker_connections 8192;
+    multi_accept on;
+    use epoll;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    types_hash_max_size 2048;
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    access_log /var/log/nginx/access.log;
+    gzip on;
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+EOF
+fi
+
+# Настройка сайтов (sites-available/default)
+if [ "$domain_type" = "wildcard" ]; then
+    cat << EOF > /etc/nginx/sites-available/default
+server {
+    listen 80;
+    server_name $domain ad.$domain ads.$domain;
+    return 301 https://\$http_host\$request_uri;
+}
+
+server {
+    listen 127.0.0.1:8443 ssl proxy_protocol;
+    server_name $domain;
+    ssl_certificate $cert_dir/xray.crt;
+    ssl_certificate_key $cert_dir/xray.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    root /var/www/html;
+    index index.html;
+    add_header Strict-Transport-Security "max-age=63072000" always;
+}
+
+server {
+    listen 127.0.0.1:8080 proxy_protocol;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    server_name ad.$domain;
+    root /var/www/html;
+    index index.html;
+}
+
+server {
+    listen 127.0.0.1:8081 ssl proxy_protocol;
+    ssl_certificate $cert_dir/xray_ads.crt;
+    ssl_certificate_key $cert_dir/xray_ads.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    server_name ads.$domain;
+    root /var/www/html;
+    index index.html;
+}
+EOF
+else
+    # single: только 80 и fallback 8080
+    cat << EOF > /etc/nginx/sites-available/default
+server {
+    listen 80;
+    server_name $domain;
+    return 301 https://\$http_host\$request_uri;
+}
+
+server {
+    listen 127.0.0.1:8080 proxy_protocol;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+    server_name $domain;
+    root /var/www/html;
+    index index.html;
+}
+EOF
+fi
+
+systemctl daemon-reload
+systemctl restart nginx
+
+# 10. Установка telemt (если выбран)
+if [ "$install_telemt" = true ]; then
+    echo "=== Установка telemt ==="
+    wget -qO- "https://github.com/telemt/telemt/releases/latest/download/telemt-$(uname -m)-linux-$(ldd --version 2>&1 | grep -iq musl && echo musl || echo gnu).tar.gz" | tar -xz
+    mv telemt /bin/
+    chmod +x /bin/telemt
+
+    secret=$(openssl rand -hex 16)
+    mkdir -p /etc/telemt
+    mkdir -p /opt/telemt
+
+    # Настройка в зависимости от типа домена
+    if [ "$domain_type" = "wildcard" ]; then
+        telemt_listen_addr="127.0.0.1"
+        telemt_port_internal=7788
+        telemt_proxy_protocol=true
+        telemt_tls_domain="ads.$domain"
+        telemt_mask=true
+        telemt_mask_port=8081
+        telemt_mask_host="127.0.0.1"
+        telemt_link_port=443
+    else
+        telemt_listen_addr="0.0.0.0"
+        telemt_port_internal="$telemt_port"
+        telemt_proxy_protocol=false
+        telemt_tls_domain="$domain"
+        telemt_mask=true
+        telemt_mask_port=8081
+        telemt_mask_host="127.0.0.1"
+        telemt_link_port="$telemt_port"
+    fi
+
+    cat << EOF > /etc/telemt/telemt.toml
+[general]
+use_middle_proxy = false
+fast_mode = true
+log_level = "normal"
+
+[general.modes]
+classic = false
+secure = false
+tls = true
+
+[server]
+port = $telemt_port_internal
+listen_addr_ipv4 = "$telemt_listen_addr"
+proxy_protocol = $telemt_proxy_protocol
+
+[server.api]
+enabled = true
+listen = "127.0.0.1:9091"
+read_only = true
+
+[censorship]
+tls_domain = "$telemt_tls_domain"
+mask = $telemt_mask
+mask_port = $telemt_mask_port
+mask_host = "$telemt_mask_host"
+mask_proxy_protocol = 1
+tls_emulation = true
+
+[access.users]
+hello = "$secret"
+EOF
+
+    id -u telemt &>/dev/null || useradd -d /opt/telemt -m -r -U telemt
+    chown -R telemt:telemt /etc/telemt
+    chown -R telemt:telemt /opt/telemt
+    chmod -R 770 /opt/telemt
+
+    cat << 'EOF' > /etc/systemd/system/telemt.service
+[Unit]
+Description=Telemt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telemt
+Group=telemt
+WorkingDirectory=/opt/telemt
+ExecStart=/bin/telemt /etc/telemt/telemt.toml
+Restart=on-failure
+LimitNOFILE=65536
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable telemt
+    systemctl start telemt
+    sleep 1
+fi
+
+# 11. Завершение и вывод информации
+systemctl daemon-reload
+systemctl restart xray
+
+echo ""
+echo -e "\033[1;32m=== Установка завершена ===\033[0m"
+echo "Сертификаты выпущены для:"
+if [ "$domain_type" = "wildcard" ]; then
+    echo -e "\033[1;32m$domain, ad.$domain, ads.$domain\033[0m"
+else
+    echo -e "\033[1;32m$domain\033[0m"
+fi
+echo "Шаблон сайта установлен в /var/www/html"
+echo ""
+
+# Ссылка Xray
+if [ "$domain_type" = "wildcard" ]; then
+    sni_link="ad.$domain"
+    xray_port=443
+else
+    sni_link="$domain"
+    xray_port=443
+fi
+link="vless://$uuid@$domain:$xray_port?security=tls&alpn=http%2F1.1&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=$sni_link&headerType=none&encryption=none#VPN"
+echo "Ссылка для подключения Xray (порт $xray_port):"
+echo -e "\033[1;32m$link\033[0m"
+echo ""
+
+if [ "$install_telemt" = true ]; then
+    if [ "$domain_type" = "wildcard" ]; then
+        telemt_link=$(curl -s http://127.0.0.1:9091/v1/users | \
+          jq -r '.data[].links.tls[0]' | \
+          sed "s/127.0.0.1/$domain/" | \
+          sed 's/7788/443/')
+    else
+        telemt_link=$(curl -s http://127.0.0.1:9091/v1/users | \
+          jq -r '.data[].links.tls[0]' | \
+          sed "s/127.0.0.1/$domain/" | \
+          sed "s/7788/$telemt_port/")
+    fi
+    echo "Ссылка для подключения Telemt (порт $telemt_link_port):"
+    echo -e "\033[1;32m$telemt_link\033[0m"
+else
+    echo "Telemt не установлен."
+fi
+
+if [ "$install_warp" = true ]; then
+    echo "microWARP установлен и включён в маршрутизацию Xray."
+else
+    echo "microWARP не установлен."
+fi
